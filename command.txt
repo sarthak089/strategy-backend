@@ -1,0 +1,7 @@
+Backend
+venv\Scripts\activate
+uvicorn main:app --reload
+
+UI
+cd C:\Users\ASUS\strategy-finder
+npm run dev
