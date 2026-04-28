@@ -1,9 +1,8 @@
 from scipy.stats import norm
 import math
 
-def black_scholes_delta(spot, strike, tte_days, iv, option_type, risk_free_rate=0.065):
+def black_scholes_delta(spot, strike, tte_days, iv, option_type, risk_free_rate=0.0675):
     if tte_days <= 0 or iv <= 0:
-        # at expiry
         if option_type == "CE":
             return 1.0 if spot > strike else 0.0
         else:

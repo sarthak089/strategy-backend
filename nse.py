@@ -23,7 +23,13 @@ def get_tte_days(expiry_str):
     now = datetime.now()
     diff = expiry_dt - now
     total_days = diff.total_seconds() / 86400
-    return max(total_days, 0)
+
+    if total_days <= 0:
+        market_close = expiry_dt.replace(hour=15, minute=30, second=0, microsecond=0)
+        remaining = (market_close - now).total_seconds() / 86400
+        return max(remaining, 1/1440)  # minimum 1 minute
+
+    return total_days
 
 def get_spot_and_premiums(symbol="NIFTY", expiry=None, otm_range=20, itm_range=2):
     # get all expiries and spot from main chain
