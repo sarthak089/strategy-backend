@@ -2,6 +2,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from nse import get_spot_and_premiums
 from calculations import generate_strategies
+from nse import get_spot_and_premiums, n
 
 app = FastAPI()
 
@@ -20,9 +21,7 @@ def health():
 @app.get("/expiries")
 def expiries(symbol: str = Query(default="NIFTY")):
     try:
-        from jugaad_data.nse import NSELive
-        n = NSELive()
-        chain = n.index_option_chain(symbol)
+        chain = n.get('option_chain_v3', {'symbol': symbol})
         all_expiries = chain["records"]["expiryDates"]
         return {"success": True, "expiries": all_expiries}
     except Exception as e:
