@@ -21,8 +21,8 @@ def health():
 @app.get("/expiries")
 def expiries(symbol: str = Query(default="NIFTY")):
     try:
-        chain = n.get('option_chain_v3', {'symbol': symbol})
-        all_expiries = chain["records"]["expiryDates"]
+        from nse import get_all_expiries
+        all_expiries = get_all_expiries(symbol)
         return {"success": True, "expiries": all_expiries}
     except Exception as e:
         return {"success": False, "error": str(e)}

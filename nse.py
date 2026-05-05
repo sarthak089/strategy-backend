@@ -1,6 +1,29 @@
 from jugaad_data.nse import NSELive
 from datetime import datetime
 import math
+import requests
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "*/*",
+    "Accept-Language": "en-IN,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.nseindia.com/option-chain",
+    "X-Requested-With": "XMLHttpRequest",
+    "Connection": "keep-alive",
+}
+
+def get_nse_session():
+    session = requests.Session()
+    session.get("https://www.nseindia.com", headers=HEADERS, timeout=15)
+    session.get("https://www.nseindia.com/option-chain", headers=HEADERS, timeout=15)
+    return session
+
+def fetch_nse_api(url):
+    session = get_nse_session()
+    response = session.get(url, headers=HEADERS, timeout=15)
+    response.raise_for_status()
+    return response.json()
 
 n = NSELive()
 
@@ -16,8 +39,13 @@ def get_india_vix():
         return vix * 0.01
     except Exception as e:
         print("VIX error:", e)
-        return 0.15
-    
+        try:
+            data = fetch_nse_api("https://www.nseindia.com/api/equity-stockIndices?index=INDIA%20VIX")
+            vix = float(data['data'][0]['lastPrice'])
+            return vix * 0.01
+        except:
+            return 0.15
+
 def get_tte_days(expiry_str):
     expiry_dt = datetime.strptime(expiry_str, "%d-%b-%Y")
     now = datetime.now()
@@ -27,12 +55,24 @@ def get_tte_days(expiry_str):
     if total_days <= 0:
         market_close = expiry_dt.replace(hour=15, minute=30, second=0, microsecond=0)
         remaining = (market_close - now).total_seconds() / 86400
-        return max(remaining, 1/1440)  # minimum 1 minute
+        return max(remaining, 1/1440)
 
     return total_days
 
+def get_all_expiries(symbol="NIFTY"):
+    try:
+        data = fetch_nse_api(f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}")
+        return data["records"]["expiryDates"]
+    except:
+        data = n.index_option_chain(symbol)
+        return data["records"]["expiryDates"]
+
 def get_spot_and_premiums(symbol="NIFTY", expiry=None, otm_range=20, itm_range=2):
-    chain = n.index_option_chain(symbol)
+    try:
+        chain = fetch_nse_api(f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}")
+    except:
+        chain = n.index_option_chain(symbol)
+
     spot_price = chain["records"]["underlyingValue"]
     all_expiries = chain["records"]["expiryDates"]
 
@@ -42,15 +82,16 @@ def get_spot_and_premiums(symbol="NIFTY", expiry=None, otm_range=20, itm_range=2
     expiry_formatted = format_expiry_for_comparison(expiry)
     atm_strike = round(spot_price / 50) * 50
 
-    # CE range: ATM - ITM to ATM + OTM
     ce_lower = atm_strike - itm_range * 50
     ce_upper = atm_strike + otm_range * 50
-
-    # PE range: ATM - OTM to ATM + ITM
     pe_lower = atm_strike - otm_range * 50
     pe_upper = atm_strike + itm_range * 50
 
-    chain_v3 = n.get('option_chain_v3', {'symbol': symbol, 'expiry': expiry})
+    try:
+        chain_v3 = fetch_nse_api(f"https://www.nseindia.com/api/option-chain-v3?symbol={symbol}&expiry={expiry}")
+    except:
+        chain_v3 = n.get('option_chain_v3', {'symbol': symbol, 'expiry': expiry})
+
     all_data = chain_v3.get('filtered', {}).get('data', [])
 
     filtered = []
@@ -68,7 +109,6 @@ def get_spot_and_premiums(symbol="NIFTY", expiry=None, otm_range=20, itm_range=2
         ce_iv = record.get("CE", {}).get("impliedVolatility", 0)
         pe_iv = record.get("PE", {}).get("impliedVolatility", 0)
 
-        # apply range filter per option type
         if ce_lower <= strike <= ce_upper:
             pass
         elif pe_lower <= strike <= pe_upper:
@@ -76,7 +116,6 @@ def get_spot_and_premiums(symbol="NIFTY", expiry=None, otm_range=20, itm_range=2
         else:
             continue
 
-        # zero out premiums outside their valid range
         if not (ce_lower <= strike <= ce_upper):
             ce_premium = 0
             ce_iv = 0
@@ -111,63 +150,3 @@ def get_spot_and_premiums(symbol="NIFTY", expiry=None, otm_range=20, itm_range=2
         "tte_days": tte_days,
         "options": filtered,
     }
-# def get_spot_and_premiums(symbol="NIFTY", expiry=None, otm_range=20, itm_range=2):
-#     # get all expiries and spot from main chain
-#     chain = n.index_option_chain(symbol)
-#     spot_price = chain["records"]["underlyingValue"]
-#     all_expiries = chain["records"]["expiryDates"]
-
-#     if expiry is None:
-#         expiry = all_expiries[0]
-
-#     expiry_formatted = format_expiry_for_comparison(expiry)
-#     atm_strike = round(spot_price / 50) * 50
-
-#     # use option_chain_v3 with specific expiry to get all strikes
-#     chain_v3 = n.get('option_chain_v3', {'symbol': symbol, 'expiry': expiry})
-#     all_data = chain_v3.get('filtered', {}).get('data', [])
-
-#     filtered = []
-#     for record in all_data:
-#         ce_expiry = record.get("CE", {}).get("expiryDate", "")
-#         pe_expiry = record.get("PE", {}).get("expiryDate", "")
-
-#         if ce_expiry != expiry_formatted and pe_expiry != expiry_formatted:
-#             continue
-
-#         strike = record["strikePrice"]
-#         diff = (strike - atm_strike) / 50
-
-#         if diff > otm_range or diff < -otm_range:
-#             continue
-
-#         ce_premium = record.get("CE", {}).get("lastPrice", 0)
-#         pe_premium = record.get("PE", {}).get("lastPrice", 0)
-#         ce_iv = record.get("CE", {}).get("impliedVolatility", 0)
-#         pe_iv = record.get("PE", {}).get("impliedVolatility", 0)
-
-#         filtered.append({
-#             "strike": strike,
-#             "diff_from_atm": int(diff),
-#             "ce_premium": ce_premium,
-#             "pe_premium": pe_premium,
-#             "ce_iv": ce_iv,
-#             "pe_iv": pe_iv,
-#             "expiry": expiry,
-#         })
-
-#     filtered.sort(key=lambda x: x["strike"])
-
-#     vix = get_india_vix()
-#     tte_days = get_tte_days(expiry)
-
-#     return {
-#         "symbol": symbol,
-#         "spot": spot_price,
-#         "atm": atm_strike,
-#         "expiry": expiry,
-#         "all_expiries": all_expiries,
-#         "vix": vix,
-#         "tte_days": tte_days,
-#         "options": filtered,
-#     }
