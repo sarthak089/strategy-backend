@@ -62,14 +62,24 @@ def get_tte_days(expiry_str):
 def get_all_expiries(symbol="NIFTY"):
     try:
         data = fetch_nse_api(f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}")
-        return data["records"]["expiryDates"]
+        if "records" in data:
+            return data["records"]["expiryDates"]
+        raise Exception("No records")
     except:
-        data = n.index_option_chain(symbol)
-        return data["records"]["expiryDates"]
+        try:
+            data = n.index_option_chain(symbol)
+            return data["records"]["expiryDates"]
+        except:
+            data = n.get('option_chain_v3', {'symbol': symbol})
+            return data["records"]["expiryDates"]
 
 def get_spot_and_premiums(symbol="NIFTY", expiry=None, otm_range=20, itm_range=2):
+    # try fetch_nse_api first, fallback to jugaad
+    chain = None
     try:
         chain = fetch_nse_api(f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}")
+        if "records" not in chain:
+            raise Exception("No records key")
     except:
         chain = n.index_option_chain(symbol)
 
@@ -87,8 +97,12 @@ def get_spot_and_premiums(symbol="NIFTY", expiry=None, otm_range=20, itm_range=2
     pe_lower = atm_strike - otm_range * 50
     pe_upper = atm_strike + itm_range * 50
 
+    # try fetch_nse_api first, fallback to jugaad
+    chain_v3 = None
     try:
         chain_v3 = fetch_nse_api(f"https://www.nseindia.com/api/option-chain-v3?symbol={symbol}&expiry={expiry}")
+        if "filtered" not in chain_v3:
+            raise Exception("No filtered key")
     except:
         chain_v3 = n.get('option_chain_v3', {'symbol': symbol, 'expiry': expiry})
 
